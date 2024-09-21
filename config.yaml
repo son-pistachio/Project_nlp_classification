@@ -1,0 +1,13 @@
+# config.yaml
+train:
+  batch_size: 8
+  num_epochs: 3
+  learning_rate: 1e-5
+
+model:
+  name: "BERT"
+  num_labels: 12
+
+wandb:
+  project_name: "bert-classification-v2"
+  log_model: True
