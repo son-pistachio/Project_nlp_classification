@@ -9,7 +9,7 @@ import wandb
 from pytorch_lightning import LightningModule, Trainer, seed_everything
 from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader, Dataset
-from transformers import BertTokenizerFast, BertModel
+from transformers import BertTokenizerFast, BertModel, AdamW, get_linear_schedule_with_warmup
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, accuracy_score
 
@@ -56,7 +56,7 @@ class TokenDataset(Dataset):
         )
         input_ids = tokens['input_ids'].squeeze(0)
         attention_mask = tokens['attention_mask'].squeeze(0)
-        token_type_ids = torch.zeros_like(attention_mask)
+        token_type_ids = tokens['token_type_ids'].squeeze(0)
         return {'input_ids': input_ids, 'attention_mask': attention_mask, 'token_type_ids': token_type_ids}, torch.tensor(label)
 
 # train, test 데이터셋 생성
@@ -68,9 +68,8 @@ train_loader = DataLoader(train_data, batch_size=16, shuffle=True, num_workers=4
 val_loader = DataLoader(val_data, batch_size=16, shuffle=False, num_workers=4)
 test_loader = DataLoader(test_data, batch_size=16, shuffle=False, num_workers=4)
 
-# Lightning 모듈 정의
 class BertLightningModel(LightningModule):
-    def __init__(self, bert_pretrained, num_labels=12, lr=0.01):
+    def __init__(self, bert_pretrained, num_labels=12, lr=1e-5):
         super(BertLightningModel, self).__init__()
         self.save_hyperparameters()
         self.bert = BertModel.from_pretrained(bert_pretrained)
@@ -79,27 +78,44 @@ class BertLightningModel(LightningModule):
 
     def forward(self, input_ids, attention_mask, token_type_ids):
         output = self.bert(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
-        last_hidden_state = output.last_hidden_state
-        cls_output = last_hidden_state[:, 0, :]
+        cls_output = output.last_hidden_state[:, 0, :]
         logits = self.fc(cls_output)
         return logits
-    
+
     def training_step(self, batch, batch_idx):
         inputs, labels = batch
         outputs = self(**inputs)
         loss = self.loss_fn(outputs, labels)
-        
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         inputs, labels = batch
         outputs = self(**inputs)
-        loss = self.loss_fn(outputs, labels)
         _, preds = torch.max(outputs, dim=1)
-        
-        acc = accuracy_score(labels.cpu(), preds.cpu())
-        f1 = f1_score(labels.cpu(), preds.cpu(), average='macro')
+        self.val_predictions.append(preds)
+        self.val_targets.append(labels)
+        self.val_losses.append(self.loss_fn(outputs, labels))
+
+    def on_validation_epoch_start(self):
+        self.val_predictions = []
+        self.val_targets = []
+        self.val_losses = []
+
+    def on_validation_epoch_end(self):
+        preds = torch.cat(self.val_predictions)
+        targets = torch.cat(self.val_targets)
+        loss = torch.mean(torch.stack(self.val_losses))
+
+        # 분산 환경에서 모든 프로세스의 결과를 모음
+        preds = self.all_gather(preds)
+        targets = self.all_gather(targets)
+
+        preds = preds.cpu().numpy()
+        targets = targets.cpu().numpy()
+
+        acc = accuracy_score(targets, preds)
+        f1 = f1_score(targets, preds, average='macro')
 
         self.log('val_loss', loss, prog_bar=True)
         self.log('val_acc', acc, prog_bar=True)
@@ -109,31 +125,41 @@ class BertLightningModel(LightningModule):
         inputs, labels = batch
         outputs = self(**inputs)
         _, preds = torch.max(outputs, dim=1)
-        
-        # 예측값과 실제값 저장
-        self.predictions.append(preds.cpu())
-        self.targets.append(labels.cpu())
-        
+        self.test_predictions.append(preds)
+        self.test_targets.append(labels)
+
     def on_test_epoch_start(self):
-        self.predictions = []
-        self.targets = []
+        self.test_predictions = []
+        self.test_targets = []
 
     def on_test_epoch_end(self):
-        preds = torch.cat(self.predictions)
-        targets = torch.cat(self.targets)
-        
+        preds = torch.cat(self.test_predictions)
+        targets = torch.cat(self.test_targets)
+
+        # 분산 환경에서 모든 프로세스의 결과를 모음
+        preds = self.all_gather(preds)
+        targets = self.all_gather(targets)
+
+        preds = preds.cpu().numpy()
+        targets = targets.cpu().numpy()
+
         acc = accuracy_score(targets, preds)
         f1 = f1_score(targets, preds, average='macro')
-        
+
         self.log('test_acc', acc)
         self.log('test_f1', f1)
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=self.hparams.lr)
-        return optimizer
+        optimizer = AdamW(self.parameters(), lr=self.hparams.lr, correct_bias=False)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=0,
+            num_training_steps=self.trainer.estimated_stepping_batches
+        )
+        return [optimizer], [scheduler]
+
 
 # WandbLogger 설정
-wandb.init(project="bert-classification")
 wandb_logger = WandbLogger(project="bert-classification", log_model=True)
 
 bert_model = BertLightningModel(CHECKPOINT_NAME)

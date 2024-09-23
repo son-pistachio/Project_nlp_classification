@@ -9,7 +9,7 @@ import wandb
 from pytorch_lightning import LightningModule, Trainer, seed_everything
 from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader, Dataset
-from transformers import GPT2Tokenizer, GPT2Model
+from transformers import GPT2Tokenizer, GPT2Model, AdamW, get_linear_schedule_with_warmup
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, accuracy_score
 
@@ -70,7 +70,7 @@ test_loader = DataLoader(test_data, batch_size=16, shuffle=False, num_workers=4)
 
 # Lightning 모듈 정의
 class GPT2LightningModel(LightningModule):
-    def __init__(self, gpt2_pretrained, num_labels=12, lr=0.01):
+    def __init__(self, gpt2_pretrained, num_labels=12, lr=5e-5):
         super(GPT2LightningModel, self).__init__()
         self.save_hyperparameters()
         self.gpt2 = GPT2Model.from_pretrained(gpt2_pretrained)
@@ -95,42 +95,71 @@ class GPT2LightningModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         inputs, labels = batch
         outputs = self(**inputs)
-        loss = self.loss_fn(outputs, labels)
         _, preds = torch.max(outputs, dim=1)
-        
-        acc = accuracy_score(labels.cpu(), preds.cpu())
-        f1 = f1_score(labels.cpu(), preds.cpu(), average='macro')
+        self.val_predictions.append(preds)
+        self.val_targets.append(labels)
+        self.val_losses.append(self.loss_fn(outputs, labels))
+
+    def on_validation_epoch_start(self):
+        self.val_predictions = []
+        self.val_targets = []
+        self.val_losses = []
+
+    def on_validation_epoch_end(self):
+        preds = torch.cat(self.val_predictions)
+        targets = torch.cat(self.val_targets)
+        loss = torch.mean(torch.stack(self.val_losses))
+
+        # 분산 환경에서 모든 프로세스의 결과를 모음
+        preds = self.all_gather(preds)
+        targets = self.all_gather(targets)
+
+        preds = preds.cpu().numpy()
+        targets = targets.cpu().numpy()
+
+        acc = accuracy_score(targets, preds)
+        f1 = f1_score(targets, preds, average='macro')
 
         self.log('val_loss', loss, prog_bar=True)
         self.log('val_acc', acc, prog_bar=True)
         self.log('val_f1', f1, prog_bar=True)
-        
+
     def test_step(self, batch, batch_idx):
         inputs, labels = batch
         outputs = self(**inputs)
         _, preds = torch.max(outputs, dim=1)
-        
-        # 예측값과 실제값 저장
-        self.predictions.append(preds.cpu())
-        self.targets.append(labels.cpu())
-        
+        self.test_predictions.append(preds)
+        self.test_targets.append(labels)
+
     def on_test_epoch_start(self):
-        self.predictions = []
-        self.targets = []
+        self.test_predictions = []
+        self.test_targets = []
 
     def on_test_epoch_end(self):
-        preds = torch.cat(self.predictions)
-        targets = torch.cat(self.targets)
-        
+        preds = torch.cat(self.test_predictions)
+        targets = torch.cat(self.test_targets)
+
+        # 분산 환경에서 모든 프로세스의 결과를 모음
+        preds = self.all_gather(preds)
+        targets = self.all_gather(targets)
+
+        preds = preds.cpu().numpy()
+        targets = targets.cpu().numpy()
+
         acc = accuracy_score(targets, preds)
         f1 = f1_score(targets, preds, average='macro')
-        
+
         self.log('test_acc', acc)
         self.log('test_f1', f1)
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=self.hparams.lr)
-        return optimizer
+        optimizer = AdamW(self.parameters(), lr=self.hparams.lr, correct_bias=False)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=0,
+            num_training_steps=self.trainer.estimated_stepping_batches
+        )
+        return [optimizer], [scheduler]
 
 # WandbLogger 설정
 wandb.init(project="gpt-classification")
