@@ -70,7 +70,7 @@ test_loader = DataLoader(test_data, batch_size=8, shuffle=False, num_workers=4)
 
 # Lightning 모듈 정의
 class BertLightningModel(LightningModule):
-    def __init__(self, bert_pretrained, num_labels=12, lr=1e-5):
+    def __init__(self, bert_pretrained, num_labels=12, lr=0.01):
         super(BertLightningModel, self).__init__()
         self.save_hyperparameters()
         self.bert = BertModel.from_pretrained(bert_pretrained)
@@ -129,7 +129,7 @@ wandb_logger = WandbLogger(project="bert-classification", log_model=True)
 
 bert_model = BertLightningModel(CHECKPOINT_NAME)
 trainer = Trainer(
-    max_epochs=2,
+    max_epochs=10,
     deterministic=True,
     logger=wandb_logger
 )
