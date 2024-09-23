@@ -64,9 +64,9 @@ train_data = TokenDataset(train_df, CHECKPOINT_NAME)
 val_data = TokenDataset(val_df, CHECKPOINT_NAME)
 test_data = TokenDataset(test_df, CHECKPOINT_NAME)
 
-train_loader = DataLoader(train_data, batch_size=8, shuffle=False, num_workers=4)
-val_loader = DataLoader(val_data, batch_size=8, shuffle=False, num_workers=4)
-test_loader = DataLoader(test_data, batch_size=8, shuffle=False, num_workers=4)
+train_loader = DataLoader(train_data, batch_size=16, shuffle=False, num_workers=4)
+val_loader = DataLoader(val_data, batch_size=16, shuffle=False, num_workers=4)
+test_loader = DataLoader(test_data, batch_size=16, shuffle=False, num_workers=4)
 
 # Lightning 모듈 정의
 class BertLightningModel(LightningModule):

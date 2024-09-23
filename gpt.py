@@ -64,13 +64,13 @@ train_data = GPT2TokenDataset(train_df, CHECKPOINT_NAME)
 val_data = GPT2TokenDataset(val_df, CHECKPOINT_NAME)
 test_data = GPT2TokenDataset(test_df, CHECKPOINT_NAME)
 
-train_loader = DataLoader(train_data, batch_size=8, shuffle=False, num_workers=4)
-val_loader = DataLoader(val_data, batch_size=8, shuffle=False, num_workers=4)
-test_loader = DataLoader(test_data, batch_size=8, shuffle=False, num_workers=4)
+train_loader = DataLoader(train_data, batch_size=16, shuffle=False, num_workers=4)
+val_loader = DataLoader(val_data, batch_size=16, shuffle=False, num_workers=4)
+test_loader = DataLoader(test_data, batch_size=16, shuffle=False, num_workers=4)
 
 # Lightning 모듈 정의
 class GPT2LightningModel(LightningModule):
-    def __init__(self, gpt2_pretrained, num_labels=12, lr=1e-5):
+    def __init__(self, gpt2_pretrained, num_labels=12, lr=0.01):
         super(GPT2LightningModel, self).__init__()
         self.save_hyperparameters()
         self.gpt2 = GPT2Model.from_pretrained(gpt2_pretrained)
@@ -129,7 +129,7 @@ wandb_logger = WandbLogger(project="gpt-classification", log_model=True)
 
 gpt2_model = GPT2LightningModel(CHECKPOINT_NAME)
 trainer = Trainer(
-    max_epochs=2,
+    max_epochs=10,
     deterministic=True,
     logger=wandb_logger
 )

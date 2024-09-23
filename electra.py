@@ -61,13 +61,13 @@ train_data = TokenDataset(train_df, CHECKPOINT_NAME)
 val_data = TokenDataset(val_df, CHECKPOINT_NAME)
 test_data = TokenDataset(test_df, CHECKPOINT_NAME)
 
-train_loader = DataLoader(train_data, batch_size=8, shuffle=False, num_workers=4)
-val_loader = DataLoader(val_data, batch_size=8, shuffle=False, num_workers=4)
-test_loader = DataLoader(test_data, batch_size=8, shuffle=False, num_workers=4)
+train_loader = DataLoader(train_data, batch_size=16, shuffle=False, num_workers=4)
+val_loader = DataLoader(val_data, batch_size=16, shuffle=False, num_workers=4)
+test_loader = DataLoader(test_data, batch_size=16, shuffle=False, num_workers=4)
 
 # Lightning 모듈 정의
 class BertLightningModel(LightningModule):
-    def __init__(self, bert_pretrained, num_labels=12, lr=1e-5):
+    def __init__(self, bert_pretrained, num_labels=12, lr=0.01):
         super(BertLightningModel, self).__init__()
         self.save_hyperparameters()
         self.bert = ElectraModel.from_pretrained(bert_pretrained)
@@ -121,6 +121,6 @@ class BertLightningModel(LightningModule):
         return optimizer
 
 bert_model = BertLightningModel(CHECKPOINT_NAME)
-trainer = Trainer(max_epochs=2, deterministic=True)
+trainer = Trainer(max_epochs=10, deterministic=True)
 trainer.fit(bert_model, train_loader, val_loader)
 trainer.test(bert_model, test_loader)
