@@ -95,7 +95,7 @@ class SBERTLightningModel(LightningModule):
         _, preds = torch.max(outputs, dim=1)
 
         acc = accuracy_score(labels.cpu(), preds.cpu())
-        f1 = f1_score(labels.cpu(), preds.cpu(), average='weighted')
+        f1 = f1_score(labels.cpu(), preds.cpu(), average='macro')
 
         self.log('val_loss', loss, prog_bar=True)
         self.log('val_acc', acc, prog_bar=True)
@@ -109,7 +109,7 @@ class SBERTLightningModel(LightningModule):
         _, preds = torch.max(outputs, dim=1)
 
         acc = accuracy_score(labels.cpu(), preds.cpu())
-        f1 = f1_score(labels.cpu(), preds.cpu(), average='weighted')
+        f1 = f1_score(labels.cpu(), preds.cpu(), average='macro')
 
         self.log('test_loss', loss, prog_bar=True)
         self.log('test_acc', acc, prog_bar=True)
