@@ -67,7 +67,7 @@ test_loader = DataLoader(test_data, batch_size=16, shuffle=False, num_workers=4)
 
 # Lightning 모듈 정의
 class SBERTLightningModel(LightningModule):
-    def __init__(self, sbert_model_name, num_labels=12, lr=5e-5):
+    def __init__(self, sbert_model_name, num_labels=12, lr=1e-5):
         super(SBERTLightningModel, self).__init__()
         self.save_hyperparameters()
         # SBERT returns embeddings, so we don't need a full transformer model here

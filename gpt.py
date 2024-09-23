@@ -70,7 +70,7 @@ test_loader = DataLoader(test_data, batch_size=16, shuffle=False, num_workers=4)
 
 # Lightning 모듈 정의
 class GPT2LightningModel(LightningModule):
-    def __init__(self, gpt2_pretrained, num_labels=12, lr=5e-5):
+    def __init__(self, gpt2_pretrained, num_labels=12, lr=1e-5):
         super(GPT2LightningModel, self).__init__()
         self.save_hyperparameters()
         self.gpt2 = GPT2Model.from_pretrained(gpt2_pretrained)

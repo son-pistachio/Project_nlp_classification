@@ -73,8 +73,8 @@ class BertLightningModel(LightningModule):
         self.fc = nn.Linear(768, num_labels)
         self.loss_fn = nn.CrossEntropyLoss()
 
-    def forward(self, input_ids, attention_mask, token_type_ids):
-        output = self.bert(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
+    def forward(self, input_ids, attention_mask):
+        output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         cls_output = output.last_hidden_state[:, 0, :]
         logits = self.fc(cls_output)
         return logits

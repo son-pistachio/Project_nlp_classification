@@ -65,9 +65,8 @@ train_loader = DataLoader(train_data, batch_size=16, shuffle=False, num_workers=
 val_loader = DataLoader(val_data, batch_size=16, shuffle=False, num_workers=4)
 test_loader = DataLoader(test_data, batch_size=16, shuffle=False, num_workers=4)
 
-# Lightning 모듈 정의
 class BertLightningModel(LightningModule):
-    def __init__(self, bert_pretrained, num_labels=12, lr=5e-5):
+    def __init__(self, bert_pretrained, num_labels=12, lr=1e-5):
         super(BertLightningModel, self).__init__()
         self.save_hyperparameters()
         self.bert = AutoModel.from_pretrained(bert_pretrained)
@@ -76,16 +75,14 @@ class BertLightningModel(LightningModule):
 
     def forward(self, input_ids, attention_mask):
         output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        last_hidden_state = output.last_hidden_state
-        cls_output = last_hidden_state[:, 0, :]
+        cls_output = output.last_hidden_state[:, 0, :]
         logits = self.fc(cls_output)
         return logits
-    
+
     def training_step(self, batch, batch_idx):
         inputs, labels = batch
         outputs = self(**inputs)
         loss = self.loss_fn(outputs, labels)
-        
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
