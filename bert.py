@@ -64,7 +64,7 @@ train_data = TokenDataset(train_df, CHECKPOINT_NAME)
 val_data = TokenDataset(val_df, CHECKPOINT_NAME)
 test_data = TokenDataset(test_df, CHECKPOINT_NAME)
 
-train_loader = DataLoader(train_data, batch_size=16, shuffle=False, num_workers=4)
+train_loader = DataLoader(train_data, batch_size=16, shuffle=True, num_workers=4)
 val_loader = DataLoader(val_data, batch_size=16, shuffle=False, num_workers=4)
 test_loader = DataLoader(test_data, batch_size=16, shuffle=False, num_workers=4)
 
@@ -105,19 +105,28 @@ class BertLightningModel(LightningModule):
         self.log('val_acc', acc, prog_bar=True)
         self.log('val_f1', f1, prog_bar=True)
 
-        
     def test_step(self, batch, batch_idx):
         inputs, labels = batch
         outputs = self(**inputs)
-        loss = self.loss_fn(outputs, labels)
         _, preds = torch.max(outputs, dim=1)
         
-        acc = accuracy_score(labels.cpu(), preds.cpu())
-        f1 = f1_score(labels.cpu(), preds.cpu(), average='macro')
+        # 예측값과 실제값 저장
+        self.predictions.append(preds.cpu())
+        self.targets.append(labels.cpu())
         
-        self.log('test_loss', loss, prog_bar=True)
-        self.log('test_acc', acc, prog_bar=True)
-        self.log('test_f1', f1, prog_bar=True)
+    def on_test_epoch_start(self):
+        self.predictions = []
+        self.targets = []
+
+    def on_test_epoch_end(self):
+        preds = torch.cat(self.predictions)
+        targets = torch.cat(self.targets)
+        
+        acc = accuracy_score(targets, preds)
+        f1 = f1_score(targets, preds, average='macro')
+        
+        self.log('test_acc', acc)
+        self.log('test_f1', f1)
 
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=self.hparams.lr)
