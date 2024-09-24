@@ -192,7 +192,7 @@ wandb_logger = WandbLogger(project="gpt-classification", log_model=True, name="g
 checkpoint_callback = ModelCheckpoint(
     monitor='val_loss',
     dirpath='checkpoints/bert/',
-    filename='bert-{epoch:02d}-{val_loss:.2f}',
+    filename='gpt-{epoch:02d}-{val_loss:.2f}',
     save_top_k=1,
     mode='min',
 )

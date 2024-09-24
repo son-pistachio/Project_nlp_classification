@@ -182,12 +182,12 @@ class distilBertLightningModel(LightningModule):
 
 # WandbLogger 설정
 now_sys = datetime.datetime.now().strftime("%m%d_%H%M")
-wandb_logger = WandbLogger(project="bert-classification", log_model=True, name="bert_"+now_sys)
+wandb_logger = WandbLogger(project="bert-classification", log_model=True, name="distilBERT_"+now_sys)
 
 checkpoint_callback = ModelCheckpoint(
     monitor='val_loss',
     dirpath='checkpoints/bert/',
-    filename='bert-{epoch:02d}-{val_loss:.2f}',
+    filename='distilbert-{epoch:02d}-{val_loss:.2f}',
     save_top_k=1,
     mode='min',
 )
@@ -200,7 +200,7 @@ trainer = Trainer(
 
 )
 total_steps = len(train_loader) * trainer.max_epochs
-bert_model = BertLightningModel(CHECKPOINT_NAME, total_steps=total_steps)
+bert_model = distilBertLightningModel(CHECKPOINT_NAME, total_steps=total_steps)
 
 trainer.fit(bert_model, train_loader, val_loader)
 trainer.test(bert_model, test_loader)
