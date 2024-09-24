@@ -1,6 +1,6 @@
 # config.yaml
-lr: 1e-6
+lr: 5e-7
 batch_size: 16
-max_epochs: 20
+max_epochs: 30
 max_len: 512
 num_classes: 8
