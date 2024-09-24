@@ -186,7 +186,7 @@ wandb_logger = WandbLogger(project="bert-classification", log_model=True, name="
 
 checkpoint_callback = ModelCheckpoint(
     monitor='val_loss',
-    dirpath='checkpoints/bert/',
+    dirpath='checkpoints/distilbert/',
     filename='distilbert-{epoch:02d}-{val_loss:.2f}',
     save_top_k=1,
     mode='min',

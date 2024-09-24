@@ -187,11 +187,11 @@ class GPT2LightningModel(LightningModule):
 
 # WandbLogger 설정
 now_sys = datetime.datetime.now().strftime("%m%d_%H%M")
-wandb_logger = WandbLogger(project="gpt-classification", log_model=True, name="gpt_"+now_sys)
+wandb_logger = WandbLogger(project="bert-classification", log_model=True, name="gpt_"+now_sys)
 
 checkpoint_callback = ModelCheckpoint(
     monitor='val_loss',
-    dirpath='checkpoints/bert/',
+    dirpath='checkpoints/gpt/',
     filename='gpt-{epoch:02d}-{val_loss:.2f}',
     save_top_k=1,
     mode='min',

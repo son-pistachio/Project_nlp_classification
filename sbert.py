@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, accuracy_score
 from transformers import AdamW, get_linear_schedule_with_warmup
-from sentence_transformers import SentenceTransformer  # For SBERT
+from sentence_transformers import SentenceTransformer
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 if torch.__version__ >= '2.0':
@@ -42,7 +42,7 @@ set_seed(num_seed)
 def load_config(yaml_file):
     with open(yaml_file, 'r') as file:
         config = yaml.safe_load(file)
-        
+
         lr = config['lr']
         batch_size = config['batch_size']
         max_epochs = config['max_epochs']
@@ -53,16 +53,16 @@ def load_config(yaml_file):
 df = pd.read_csv("/home/son/ml/hanyang/datasets/final_data.csv")
 lr, batch_size, max_epochs, max_len, num_classes = load_config('config.yaml')
 
-# train, val(15%), test(15%)
+# 데이터 분할
 train_df, temp_df = train_test_split(df, test_size=0.3, random_state=num_seed, stratify=df['label1'])
 val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=num_seed, stratify=temp_df['label1'])
 
-CHECKPOINT_NAME = 'sentence-transformers/bert-base-nli-mean-tokens'  # SBERT model
+CHECKPOINT_NAME = 'sentence-transformers/xlm-r-100langs-bert-base-nli-stsb-mean-tokens'  # SBERT 모델
 
+# 데이터셋 클래스 수정
 class SBERTDataset(Dataset):
-    def __init__(self, dataframe, sbert_model):
+    def __init__(self, dataframe):
         self.data = dataframe
-        self.sbert_model = SentenceTransformer(sbert_model)
 
     def __len__(self):
         return len(self.data)
@@ -70,47 +70,53 @@ class SBERTDataset(Dataset):
     def __getitem__(self, idx):
         text = self.data.iloc[idx]['text']
         label = self.data.iloc[idx]['label1']
-        # Use SBERT to encode the text directly into embeddings
-        embeddings = self.sbert_model.encode(text, convert_to_tensor=True)
-        return {'embeddings': embeddings}, torch.tensor(label)
+        return text, label
 
-# train, test 데이터셋 생성
-train_data = SBERTDataset(train_df, CHECKPOINT_NAME)
-val_data = SBERTDataset(val_df, CHECKPOINT_NAME)
-test_data = SBERTDataset(test_df, CHECKPOINT_NAME)
+# 데이터셋 생성
+train_data = SBERTDataset(train_df)
+val_data = SBERTDataset(val_df)
+test_data = SBERTDataset(test_df)
+
+# collate_fn 정의
+def collate_batch(batch):
+    texts, labels = zip(*batch)
+    labels = torch.tensor(labels)
+    return list(texts), labels
 
 num_workers = multiprocessing.cpu_count() // 2
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_batch)
+val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_batch)
+test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_batch)
 
-# Lightning 모듈 정의
+# Lightning 모듈 수정
 class SBERTLightningModel(LightningModule):
     def __init__(self, sbert_model_name, num_labels=num_classes, lr=lr, total_steps=None):
         super(SBERTLightningModel, self).__init__()
         self.save_hyperparameters()
-        # SBERT returns embeddings, so we don't need a full transformer model here
         self.sbert_model = SentenceTransformer(sbert_model_name)
-        self.fc = nn.Linear(768, num_labels)  # SBERT's embedding size is 768
+        self.sbert_model.to(self.device)
+        self.fc = nn.Linear(768, num_labels)
         self.loss_fn = nn.CrossEntropyLoss()
         self.total_steps = total_steps
 
-    def forward(self, embeddings):
+    def forward(self, texts):
+        embeddings = self.sbert_model.encode(texts, convert_to_tensor=True, device=self.device)
         logits = self.fc(embeddings)
         return logits
 
     def training_step(self, batch, batch_idx):
-        inputs, labels = batch
-        embeddings = inputs['embeddings']
-        outputs = self(embeddings)
+        texts, labels = batch
+        labels = labels.to(self.device)
+        outputs = self(texts)
         loss = self.loss_fn(outputs, labels)
 
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        inputs, labels = batch
-        outputs = self(**inputs)
+        texts, labels = batch
+        labels = labels.to(self.device)
+        outputs = self(texts)
         loss = self.loss_fn(outputs, labels)
         _, preds = torch.max(outputs, dim=1)
         self.val_predictions.append(preds)
@@ -144,8 +150,9 @@ class SBERTLightningModel(LightningModule):
         self.log('val_f1', f1, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
-        inputs, labels = batch
-        outputs = self(**inputs)
+        texts, labels = batch
+        labels = labels.to(self.device)
+        outputs = self(texts)
         _, preds = torch.max(outputs, dim=1)
         self.test_predictions.append(preds)
         self.test_targets.append(labels)
@@ -177,7 +184,7 @@ class SBERTLightningModel(LightningModule):
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
             num_warmup_steps=0,
-            num_training_steps=self.trainer.estimated_stepping_batches
+            num_training_steps=self.total_steps
         )
         return [optimizer], [{'scheduler': scheduler, 'interval': 'step'}]
 
@@ -187,7 +194,7 @@ wandb_logger = WandbLogger(project="bert-classification", log_model=True, name="
 
 checkpoint_callback = ModelCheckpoint(
     monitor='val_loss',
-    dirpath='checkpoints/bert/',
+    dirpath='checkpoints/sbert/',
     filename='sbert-{epoch:02d}-{val_loss:.2f}',
     save_top_k=1,
     mode='min',
@@ -198,7 +205,6 @@ trainer = Trainer(
     deterministic=True,
     logger=wandb_logger,
     callbacks=[checkpoint_callback]
-
 )
 
 total_steps = len(train_loader) * trainer.max_epochs
