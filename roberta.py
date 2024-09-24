@@ -116,7 +116,7 @@ class roBertLightningModel(LightningModule):
         self.val_predictions.append(preds)
         self.val_targets.append(labels)
         self.val_losses.append(loss)
-        self.log('val_loss_step', loss, prog_bar=True)
+        # self.log('val_loss_step', loss, prog_bar=True)
 
     def on_validation_epoch_start(self):
         self.val_predictions = []
