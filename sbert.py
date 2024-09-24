@@ -18,6 +18,8 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 from sentence_transformers import SentenceTransformer
 from pytorch_lightning.callbacks import ModelCheckpoint
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 if torch.__version__ >= '2.0':
     torch.set_float32_matmul_precision('high')
 
@@ -180,7 +182,7 @@ class SBERTLightningModel(LightningModule):
         self.log('test_f1', f1)
 
     def configure_optimizers(self):
-        optimizer = AdamW(self.parameters(), lr=self.hparams.lr, correct_bias=False)
+        optimizer = AdamW(self.parameters(), lr=self.hparams.lr, correct_bias=False, no_deprecation_warning=True)
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
             num_warmup_steps=0,

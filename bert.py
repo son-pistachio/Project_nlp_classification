@@ -173,7 +173,7 @@ class BertLightningModel(LightningModule):
         self.log('test_f1', f1)
 
     def configure_optimizers(self):
-        optimizer = AdamW(self.parameters(), lr=self.hparams.lr, correct_bias=False)
+        optimizer = AdamW(self.parameters(), lr=self.hparams.lr, correct_bias=False, no_deprecation_warning=True)
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
             num_warmup_steps=0,
