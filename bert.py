@@ -48,7 +48,7 @@ def load_config(yaml_file):
         num_classes = config['num_classes']
     return float(lr), batch_size, max_epochs, max_len, num_classes
 
-df = pd.read_csv("/home/son/ml/hanyang/datasets/final_data.csv")
+df = pd.read_csv("/home/son/ml/nlp_classification/datasets/final_data.csv")
 lr, batch_size, max_epochs, max_len, num_classes = load_config('config.yaml')
 
 # train, val(15%), test(15%)
