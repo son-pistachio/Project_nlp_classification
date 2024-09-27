@@ -4,7 +4,6 @@ import random
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import pandas as pd
 import wandb
 import datetime
@@ -14,8 +13,7 @@ from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader, Dataset
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, accuracy_score
-from transformers import AdamW, get_linear_schedule_with_warmup
-from sentence_transformers import SentenceTransformer
+from transformers import AdamW, get_linear_schedule_with_warmup, AutoModel, AutoTokenizer
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -63,8 +61,10 @@ CHECKPOINT_NAME = 'sentence-transformers/xlm-r-100langs-bert-base-nli-stsb-mean-
 
 # 데이터셋 클래스 수정
 class SBERTDataset(Dataset):
-    def __init__(self, dataframe):
+    def __init__(self, dataframe, tokenizer_pretrained, max_len):
         self.data = dataframe
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_pretrained)
+        self.max_len = max_len
 
     def __len__(self):
         return len(self.data)
@@ -72,59 +72,64 @@ class SBERTDataset(Dataset):
     def __getitem__(self, idx):
         text = self.data.iloc[idx]['text']
         label = self.data.iloc[idx]['label1']
-        return text, label
+        tokens = self.tokenizer(
+            text,
+            return_tensors='pt',
+            truncation=True,
+            padding='max_length',
+            max_length=self.max_len,
+            add_special_tokens=True
+        )
+        input_ids = tokens['input_ids'].squeeze(0)
+        attention_mask = tokens['attention_mask'].squeeze(0)
+        return {'input_ids': input_ids, 'attention_mask': attention_mask}, torch.tensor(label)
 
 # 데이터셋 생성
-train_data = SBERTDataset(train_df)
-val_data = SBERTDataset(val_df)
-test_data = SBERTDataset(test_df)
-
-# collate_fn 정의
-def collate_batch(batch):
-    texts, labels = zip(*batch)
-    labels = torch.tensor(labels)
-    return list(texts), labels
+train_data = SBERTDataset(train_df, CHECKPOINT_NAME, max_len)
+val_data = SBERTDataset(val_df, CHECKPOINT_NAME, max_len)
+test_data = SBERTDataset(test_df, CHECKPOINT_NAME, max_len)
 
 num_workers = multiprocessing.cpu_count() // 2
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_batch)
-val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_batch)
-test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_batch)
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 # Lightning 모듈 수정
 class SBERTLightningModel(LightningModule):
-    def __init__(self, sbert_model_name, num_labels=num_classes, lr=lr, total_steps=None):
+    def __init__(self, model_name, num_labels=num_classes, lr=lr, total_steps=None):
         super(SBERTLightningModel, self).__init__()
         self.save_hyperparameters()
-        self.sbert_model = SentenceTransformer(sbert_model_name)
-        self.sbert_model.to(self.device)
-        self.fc = nn.Linear(768, num_labels)
+        self.model = AutoModel.from_pretrained(model_name)
+        self.fc = nn.Linear(self.model.config.hidden_size, num_labels)
         self.loss_fn = nn.CrossEntropyLoss()
         self.total_steps = total_steps
 
-    def forward(self, texts):
-        embeddings = self.sbert_model.encode(texts, convert_to_tensor=True, device=self.device)
-        logits = self.fc(embeddings)
+    def forward(self, input_ids, attention_mask):
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
+        cls_output = outputs.last_hidden_state[:, 0, :]
+        logits = self.fc(cls_output)
         return logits
 
     def training_step(self, batch, batch_idx):
-        texts, labels = batch
+        inputs, labels = batch
         labels = labels.to(self.device)
-        outputs = self(texts)
+        inputs = {key: val.to(self.device) for key, val in inputs.items()}
+        outputs = self(**inputs)
         loss = self.loss_fn(outputs, labels)
 
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        texts, labels = batch
+        inputs, labels = batch
         labels = labels.to(self.device)
-        outputs = self(texts)
+        inputs = {key: val.to(self.device) for key, val in inputs.items()}
+        outputs = self(**inputs)
         loss = self.loss_fn(outputs, labels)
         _, preds = torch.max(outputs, dim=1)
         self.val_predictions.append(preds)
         self.val_targets.append(labels)
         self.val_losses.append(loss)
-        # self.log('val_loss_step', loss, prog_bar=True)
 
     def on_validation_epoch_start(self):
         self.val_predictions = []
@@ -152,9 +157,10 @@ class SBERTLightningModel(LightningModule):
         self.log('val_f1', f1, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
-        texts, labels = batch
+        inputs, labels = batch
         labels = labels.to(self.device)
-        outputs = self(texts)
+        inputs = {key: val.to(self.device) for key, val in inputs.items()}
+        outputs = self(**inputs)
         _, preds = torch.max(outputs, dim=1)
         self.test_predictions.append(preds)
         self.test_targets.append(labels)
@@ -192,7 +198,7 @@ class SBERTLightningModel(LightningModule):
 
 # WandbLogger 설정
 now_sys = datetime.datetime.now().strftime("%m%d_%H%M")
-wandb_logger = WandbLogger(project="bert-classification", log_model=True, name="sbert"+now_sys)
+wandb_logger = WandbLogger(project="bert-classification", log_model=True, name="sbert_"+now_sys)
 
 checkpoint_callback = ModelCheckpoint(
     monitor='val_loss',
