@@ -205,6 +205,7 @@ checkpoint_callback = ModelCheckpoint(
     dirpath='checkpoints/sbert/',
     filename='sbert-{epoch:02d}-{val_loss:.2f}',
     save_top_k=1,
+    save_last=True,
     mode='min',
 )
 

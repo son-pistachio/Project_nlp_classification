@@ -190,6 +190,7 @@ checkpoint_callback = ModelCheckpoint(
     dirpath='checkpoints/bert/',
     filename='bert-{epoch:02d}-{val_loss:.2f}',
     save_top_k=1,
+    save_last=True,
     mode='min',
 )
 
@@ -205,5 +206,7 @@ bert_model = BertLightningModel(CHECKPOINT_NAME, total_steps=total_steps)
 
 trainer.fit(bert_model, train_loader, val_loader)
 trainer.test(bert_model, test_loader)
+
+trainer.save_checkpoint("checkpoints/bert/final_model.ckpt")
 
 wandb.finish()
