@@ -42,15 +42,28 @@ set_seed(num_seed)
 def load_config(yaml_file):
     with open(yaml_file, 'r') as file:
         config = yaml.safe_load(file)
+        # lr과 dropout_rate를 float로 변환
+        config['lr'] = [float(x) for x in config['lr']]
+        config['dropout_rate'] = [float(x) for x in config['dropout_rate']]
         return config
 
 config = load_config('hyper_config.yaml')
 
 df = pd.read_csv("/home/son/ml/nlp_classification/datasets/final_data.csv")
 
-# train, val(15%), test(15%)
-train_df, temp_df = train_test_split(df, test_size=0.3, random_state=num_seed, stratify=df['label1'])
-val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=num_seed, stratify=temp_df['label1'])
+# 데이터 분할 및 저장
+if not os.path.exists('./data/train.csv'):
+    train_df, temp_df = train_test_split(df, test_size=0.3, random_state=num_seed, stratify=df['label1'])
+    val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=num_seed, stratify=temp_df['label1'])
+    os.makedirs('./data', exist_ok=True)
+    train_df.to_csv('./data/train.csv', index=False)
+    val_df.to_csv('./data/val.csv', index=False)
+    test_df.to_csv('./data/test.csv', index=False)
+else:
+    # 저장된 CSV 파일 불러오기
+    train_df = pd.read_csv('./data/train.csv')
+    val_df = pd.read_csv('./data/val.csv')
+    test_df = pd.read_csv('./data/test.csv')
 
 CHECKPOINT_NAME = 'kykim/bert-kor-base'
 
@@ -162,6 +175,10 @@ class BertLightningModel(LightningModule):
         self.log('test_acc', acc)
         self.log('test_f1', f1)
 
+        # CSV로 저장
+        results_df = pd.DataFrame({'true_label': targets, 'predicted_label': preds})
+        results_df.to_csv('test_results.csv', index=False)
+
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.hparams.lr, correct_bias=False, no_deprecation_warning=True)
         scheduler = get_linear_schedule_with_warmup(
@@ -172,10 +189,10 @@ class BertLightningModel(LightningModule):
         return [optimizer], [{'scheduler': scheduler, 'interval': 'step'}]
 
 def objective(trial):
-    # 하이퍼파라미터 샘플링
-    lr = trial.suggest_loguniform('lr', 1e-7, 1e-4)
-    batch_size = trial.suggest_categorical('batch_size', [8, 16, 32])
-    dropout_rate = trial.suggest_uniform('dropout_rate', 0.1, 0.5)
+    # 하이퍼파라미터 범위를 config에서 가져옴
+    lr = trial.suggest_float('lr', min(config['lr']), max(config['lr']), log=True)
+    batch_size = trial.suggest_categorical('batch_size', config['batch_size'])
+    dropout_rate = trial.suggest_float('dropout_rate', min(config['dropout_rate']), max(config['dropout_rate']))
 
     max_epochs = config['max_epochs']
     max_len = config['max_len']
@@ -198,18 +215,18 @@ def objective(trial):
 
     # 콜백 설정
     early_stop_callback = EarlyStopping(
-        monitor='val_loss',
+        monitor='val_f1',  # 성능 지표를 val_f1으로 변경
         patience=3,
         verbose=True,
-        mode='min'
+        mode='max'  # val_f1이 최대화되도록 설정
     )
 
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',
+        monitor='val_f1',  # 성능 지표를 val_f1으로 변경
         dirpath='checkpoints/bert/',
-        filename='bert-{epoch:02d}-{val_loss:.2f}',
+        filename='bert-{epoch:02d}-{val_f1:.4f}',
         save_top_k=1,
-        mode='min',
+        mode='max',
     )
 
     # 로거 설정
@@ -228,22 +245,22 @@ def objective(trial):
     # 학습
     trainer.fit(model, train_loader, val_loader)
 
-    # 검증 손실 반환
-    val_loss = trainer.callback_metrics["val_loss"].item()
+    # 검증 F1 스코어 반환
+    val_f1 = trainer.callback_metrics["val_f1"].item()
 
     # W&B 세션 종료
     wandb.finish()
 
-    return val_loss
+    return val_f1
 
 if __name__ == '__main__':
-    study = optuna.create_study(direction='minimize')
+    study = optuna.create_study(direction='maximize')  # 방향을 maximize로 변경
     study.optimize(objective, n_trials=10)
 
     print("Best trial:")
     trial = study.best_trial
 
-    print(f"  Val Loss: {trial.value}")
+    print(f"  Val F1: {trial.value}")
     print("  Best hyperparameters: ")
     for key, value in trial.params.items():
         print(f"    {key}: {value}")
@@ -277,18 +294,18 @@ if __name__ == '__main__':
 
     # 콜백 설정
     early_stop_callback = EarlyStopping(
-        monitor='val_loss',
+        monitor='val_f1',
         patience=5,
         verbose=True,
-        mode='min'
+        mode='max'
     )
 
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',
+        monitor='val_f1',
         dirpath='checkpoints/bert/',
-        filename='bert-best-{epoch:02d}-{val_loss:.2f}',
+        filename='bert-best-{epoch:02d}-{val_f1:.4f}',
         save_top_k=1,
-        mode='min',
+        mode='max',
     )
 
     # 로거 설정

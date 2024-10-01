@@ -53,8 +53,19 @@ df = pd.read_csv("/home/son/ml/nlp_classification/datasets/final_data.csv")
 lr, batch_size, max_epochs, max_len, num_classes = load_config('config.yaml')
 
 # train, val(15%), test(15%)
-train_df, temp_df = train_test_split(df, test_size=0.3, random_state=num_seed, stratify=df['label1'])
-val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=num_seed, stratify=temp_df['label1'])
+# 데이터 분할 및 저장
+if not os.path.exists('./data/train.csv'):
+    train_df, temp_df = train_test_split(df, test_size=0.3, random_state=num_seed, stratify=df['label1'])
+    val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=num_seed, stratify=temp_df['label1'])
+    os.makedirs('./data', exist_ok=True)
+    train_df.to_csv('./data/train.csv', index=False)
+    val_df.to_csv('./data/val.csv', index=False)
+    test_df.to_csv('./data/test.csv', index=False)
+else:
+    # 저장된 CSV 파일 불러오기
+    train_df = pd.read_csv('./data/train.csv')
+    val_df = pd.read_csv('./data/val.csv')
+    test_df = pd.read_csv('./data/test.csv')
 
 CHECKPOINT_NAME = 'monologg/koelectra-base-v3-discriminator'
 
