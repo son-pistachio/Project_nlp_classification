@@ -1,5 +1,5 @@
 batch_size: 16
-lr: 1e-7
+lr: 5e-7
 max_epochs: 100
 max_len: 512
 num_classes: 8
