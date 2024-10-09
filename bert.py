@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import BertTokenizerFast, BertModel, AdamW, get_linear_schedule_with_warmup
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, accuracy_score
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 if torch.__version__ >= '2.0':
     torch.set_float32_matmul_precision('high')
@@ -48,23 +48,26 @@ def load_config(yaml_file):
         num_classes = config['num_classes']
     return float(lr), batch_size, max_epochs, max_len, num_classes
 
-df = pd.read_csv("/home/son/ml/nlp_classification/datasets/final_data.csv")
+# df = pd.read_csv("/home/son/ml/nlp_classification/datasets/final_data.csv")
 lr, batch_size, max_epochs, max_len, num_classes = load_config('config.yaml')
 
 # 데이터 분할 및 저장
-if not os.path.exists('./data/train.csv'):
-    train_df, temp_df = train_test_split(df, test_size=0.3, random_state=num_seed, stratify=df['label1'])
-    val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=num_seed, stratify=temp_df['label1'])
-    os.makedirs('./data', exist_ok=True)
-    train_df.to_csv('./data/train.csv', index=False)
-    val_df.to_csv('./data/val.csv', index=False)
-    test_df.to_csv('./data/test.csv', index=False)
-else:
-    # 저장된 CSV 파일 불러오기
-    train_df = pd.read_csv('./data/train.csv')
-    val_df = pd.read_csv('./data/val.csv')
-    test_df = pd.read_csv('./data/test.csv')
-    
+# if not os.path.exists('./data/train.csv'):
+#     train_df, temp_df = train_test_split(df, test_size=0.3, random_state=num_seed, stratify=df['label1'])
+#     val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=num_seed, stratify=temp_df['label1'])
+#     os.makedirs('./data', exist_ok=True)
+#     train_df.to_csv('./data/train.csv', index=False)
+#     val_df.to_csv('./data/val.csv', index=False)
+#     test_df.to_csv('./data/test.csv', index=False)
+# else:
+#     # 저장된 CSV 파일 불러오기
+#     train_df = pd.read_csv('./data/train.csv')
+#     val_df = pd.read_csv('./data/val.csv')
+#     test_df = pd.read_csv('./data/test.csv')
+train_df = pd.read_csv('./best_data/train_data.csv')
+val_df = pd.read_csv('./best_data/val_data.csv')
+test_df = pd.read_csv('./best_data/test_data.csv')    
+
 CHECKPOINT_NAME = 'kykim/bert-kor-base'
 
 class TokenDataset(Dataset):
@@ -82,7 +85,6 @@ class TokenDataset(Dataset):
         tokens = self.tokenizer(
             text, return_tensors='pt', truncation=True, padding='max_length', max_length=max_len, add_special_tokens=True
         )
-
         input_ids = tokens['input_ids'].squeeze(0)
         attention_mask = tokens['attention_mask'].squeeze(0)
         token_type_ids = tokens['token_type_ids'].squeeze(0)
@@ -128,7 +130,6 @@ class BertLightningModel(LightningModule):
         self.val_predictions.append(preds)
         self.val_targets.append(labels)
         self.val_losses.append(loss)
-        # self.log('val_loss_step', loss, prog_bar=True)
 
     def on_validation_epoch_start(self):
         self.val_predictions = []
@@ -194,26 +195,30 @@ class BertLightningModel(LightningModule):
 # WandbLogger 설정
 now_sys = datetime.datetime.now().strftime("%m%d_%H%M")
 wandb_logger = WandbLogger(project="bert-classification", log_model=True, name="bert_"+now_sys)
-
 checkpoint_callback = ModelCheckpoint(
     monitor='val_loss',
     dirpath='checkpoints/bert/',
     filename='bert-{epoch:02d}-{val_loss:.2f}',
     save_top_k=1,
-    save_last=True,
     mode='min',
+)
+
+early_stopping_callback = EarlyStopping(
+    monitor='val_loss',
+    patience=5,
+    verbose=True,
+    mode='min'
 )
 
 trainer = Trainer(
     max_epochs=max_epochs,
     deterministic=True,
     logger=wandb_logger,
-    callbacks=[checkpoint_callback]
-
+    callbacks=[checkpoint_callback, early_stopping_callback]
 )
+
 total_steps = len(train_loader) * trainer.max_epochs
 bert_model = BertLightningModel(CHECKPOINT_NAME, total_steps=total_steps)
-
 trainer.fit(bert_model, train_loader, val_loader)
 trainer.test(bert_model, test_loader)
 

@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModel, AutoTokenizer, AdamW, get_linear_schedule_with_warmup
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, accuracy_score
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 if torch.__version__ >= '2.0':
     torch.set_float32_matmul_precision('high')
@@ -54,18 +54,21 @@ lr, batch_size, max_epochs, max_len, num_classes = load_config('config.yaml')
 
 # train, val(15%), test(15%)
 # 데이터 분할 및 저장
-if not os.path.exists('./data/train.csv'):
-    train_df, temp_df = train_test_split(df, test_size=0.3, random_state=num_seed, stratify=df['label1'])
-    val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=num_seed, stratify=temp_df['label1'])
-    os.makedirs('./data', exist_ok=True)
-    train_df.to_csv('./data/train.csv', index=False)
-    val_df.to_csv('./data/val.csv', index=False)
-    test_df.to_csv('./data/test.csv', index=False)
-else:
-    # 저장된 CSV 파일 불러오기
-    train_df = pd.read_csv('./data/train.csv')
-    val_df = pd.read_csv('./data/val.csv')
-    test_df = pd.read_csv('./data/test.csv')
+# if not os.path.exists('./data/train.csv'):
+#     train_df, temp_df = train_test_split(df, test_size=0.3, random_state=num_seed, stratify=df['label1'])
+#     val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=num_seed, stratify=temp_df['label1'])
+#     os.makedirs('./data', exist_ok=True)
+#     train_df.to_csv('./data/train.csv', index=False)
+#     val_df.to_csv('./data/val.csv', index=False)
+#     test_df.to_csv('./data/test.csv', index=False)
+# else:
+#     # 저장된 CSV 파일 불러오기
+#     train_df = pd.read_csv('./data/train.csv')
+#     val_df = pd.read_csv('./data/val.csv')
+#     test_df = pd.read_csv('./data/test.csv')
+train_df = pd.read_csv('./best_data/train_data.csv')
+val_df = pd.read_csv('./best_data/val_data.csv')
+test_df = pd.read_csv('./best_data/test_data.csv')
 
 CHECKPOINT_NAME = 'klue/roberta-base'
 
@@ -201,15 +204,19 @@ checkpoint_callback = ModelCheckpoint(
     dirpath='checkpoints/roberta/',
     filename='roberta-{epoch:02d}-{val_loss:.2f}',
     save_top_k=1,
-    save_last=True,
     mode='min',
 )
-
+early_stopping_callback = EarlyStopping(
+    monitor='val_loss',
+    patience=5,
+    verbose=True,
+    mode='min'
+)
 trainer = Trainer(
     max_epochs=max_epochs,
     deterministic=True,
     logger=wandb_logger,
-    callbacks=[checkpoint_callback]
+    callbacks=[checkpoint_callback, early_stopping_callback]
 
 )
 total_steps = len(train_loader) * trainer.max_epochs
@@ -217,5 +224,6 @@ bert_model = roBertLightningModel(CHECKPOINT_NAME, total_steps=total_steps)
 
 trainer.fit(bert_model, train_loader, val_loader)
 trainer.test(bert_model, test_loader)
+trainer.save_checkpoint("checkpoints/roberta/final_model.ckpt")
 
 wandb.finish()
