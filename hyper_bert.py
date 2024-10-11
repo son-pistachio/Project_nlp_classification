@@ -1,5 +1,4 @@
-# bert_optuna_final.py
-
+# bert_optuna.py
 import os
 import random
 import numpy as np
@@ -42,20 +41,26 @@ def load_config(yaml_file):
 
 config = load_config('hyper_config.yaml')
 
-# 텍스트 전처리 함수
-def clean_text(text):
-    text = text.strip()
-    text = ' '.join(text.split())
-    return text
+# # 텍스트 전처리 함수
+# def clean_text(text):
+#     text = text.strip()
+#     text = ' '.join(text.split())
+#     return text
 
-# 데이터 로드 및 전처리
-df = pd.read_csv('/home/son/ml/nlp_classification/datasets/final_data.csv')
-df['text'] = df['text'].apply(clean_text)
+# # 데이터 로드 및 전처리
+# df = pd.read_csv('/home/son/ml/nlp_classification/datasets/final_data.csv')
+# df['text'] = df['text'].apply(clean_text)
 
-# 데이터 분할 (train_val_df and test_df)
-train_val_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df['label1'])
-train_val_df = train_val_df.reset_index(drop=True)
-test_df = test_df.reset_index(drop=True)
+# # 데이터 분할 (train_val_df and test_df)
+# train_val_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df['label1'])
+# train_val_df = train_val_df.reset_index(drop=True)
+# test_df = test_df.reset_index(drop=True)
+
+train_df = pd.read_csv('./best_data/train_data.csv')
+val_df = pd.read_csv('./best_data/val_data.csv')
+test_df = pd.read_csv('./best_data/test_data.csv')    
+
+train_val_df = pd.concat([train_df, val_df])
 
 # 모델 및 토크나이저 체크포인트
 CHECKPOINT_NAME = 'kykim/bert-kor-base'
@@ -111,7 +116,6 @@ class BertLightningModel(LightningModule):
             nn.Dropout(dropout_rate),
             nn.Linear(256, num_labels)
         )
-        # 클래스 가중치 적용
         self.loss_fn = nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     def forward(self, input_ids, attention_mask, token_type_ids):
@@ -130,7 +134,7 @@ class BertLightningModel(LightningModule):
         outputs = self(**inputs)
         loss = self.loss_fn(outputs, labels)
         preds = torch.argmax(outputs, dim=1)
-        acc = accuracy_score(labels.cpu(), preds.cpu())
+        acc = accuracy_score(labels.cpu().numpy(), preds.cpu().numpy())
         self.log('train_loss', loss, prog_bar=True)
         self.log('train_acc', acc, prog_bar=True)
         return loss
@@ -157,8 +161,8 @@ class BertLightningModel(LightningModule):
         preds = preds.cpu()
         targets = targets.cpu()
 
-        acc = accuracy_score(targets, preds)
-        f1 = f1_score(targets, preds, average='macro')
+        acc = accuracy_score(targets.cpu().numpy(), preds.cpu().numpy())
+        f1 = f1_score(targets.cpu().numpy(), preds.cpu().numpy(), average='macro')
 
         self.log('val_loss', loss, prog_bar=True)
         self.log('val_acc', acc, prog_bar=True)
@@ -182,25 +186,25 @@ class BertLightningModel(LightningModule):
         preds = preds.cpu()
         targets = targets.cpu()
 
-        acc = accuracy_score(targets, preds)
-        f1 = f1_score(targets, preds, average='macro')
+        acc = accuracy_score(targets.cpu().numpy(), preds.cpu().numpy())
+        f1 = f1_score(targets.cpu().numpy(), preds.cpu().numpy(), average='macro')
 
         self.log('test_acc', acc)
         self.log('test_f1', f1)
 
         # 혼동 행렬 및 분류 보고서 생성
-        report = classification_report(targets, preds, output_dict=True)
+        report = classification_report(targets.cpu().numpy(), preds.cpu().numpy(), output_dict=True)
         report_df = pd.DataFrame(report).transpose()
         report_df.to_csv('classification_report.csv', index=True)
 
-        cm = confusion_matrix(targets, preds)
+        cm = confusion_matrix(targets.cpu().numpy(), preds.cpu().numpy())
         cm_df = pd.DataFrame(cm)
         cm_df.to_csv('confusion_matrix.csv', index=False)
 
         # 테스트 결과 저장
         results_df = pd.DataFrame({
-            'true_label': targets,
-            'predicted_label': preds
+        'true_label': targets.cpu().numpy(),
+        'predicted_label': preds.cpu().numpy()
         })
         results_df.to_csv('test_results.csv', index=False)
 
@@ -290,7 +294,7 @@ def objective(trial):
 
         # 로거 설정
         now_sys = datetime.datetime.now().strftime("%m%d_%H%M")
-        wandb_logger = WandbLogger(project="bert-classification-hyperparameter", log_model=False, name="bert_"+now_sys)
+        wandb_logger = WandbLogger(project="hyper-classification-hyperparameter", log_model=False, name="bert_"+now_sys)
 
         # 트레이너 설정
         trainer = Trainer(
@@ -410,7 +414,7 @@ if __name__ == '__main__':
 
     # 로거 설정
     now_sys = datetime.datetime.now().strftime("%m%d_%H%M")
-    wandb_logger = WandbLogger(project="bert-classification-final", log_model=True, name="bert_"+now_sys)
+    wandb_logger = WandbLogger(project="hyper-classification-hyperparameter", log_model=True, name="bert_"+now_sys)
 
     trainer = Trainer(
         precision=16,
