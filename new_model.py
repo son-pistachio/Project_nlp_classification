@@ -12,7 +12,7 @@ import yaml
 from pytorch_lightning import LightningModule, Trainer, seed_everything
 from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoTokenizerFast, AutoModel, AdamW, get_linear_schedule_with_warmup
+from transformers import AutoTokenizer, AutoModel, AdamW, get_linear_schedule_with_warmup
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, accuracy_score
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
@@ -73,7 +73,7 @@ CHECKPOINT_NAME = 'intfloat/multilingual-e5-large-instruct'
 class TokenDataset(Dataset):
     def __init__(self, dataframe, tokenizer_pretrained):
         self.data = dataframe        
-        self.tokenizer = AutoTokenizerFast.from_pretrained(tokenizer_pretrained)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_pretrained)
   
     def __len__(self):
         return len(self.data)
@@ -87,8 +87,8 @@ class TokenDataset(Dataset):
         )
         input_ids = tokens['input_ids'].squeeze(0)
         attention_mask = tokens['attention_mask'].squeeze(0)
-        token_type_ids = tokens['token_type_ids'].squeeze(0)
-        return {'input_ids': input_ids, 'attention_mask': attention_mask, 'token_type_ids': token_type_ids}, torch.tensor(label)
+        # token_type_ids = tokens['token_type_ids'].squeeze(0)
+        return {'input_ids': input_ids, 'attention_mask': attention_mask}, torch.tensor(label)
 
 # train, test 데이터셋 생성
 train_data = TokenDataset(train_df, CHECKPOINT_NAME)
@@ -105,12 +105,12 @@ class BertLightningModel(LightningModule):
         super(BertLightningModel, self).__init__()
         self.save_hyperparameters()
         self.bert = AutoModel.from_pretrained(bert_pretrained)
-        self.fc = nn.Linear(768, num_labels)
+        self.fc = nn.Linear(self.bert.config.hidden_size, num_labels)
         self.loss_fn = nn.CrossEntropyLoss()
         self.total_steps = total_steps
 
-    def forward(self, input_ids, attention_mask, token_type_ids):
-        output = self.bert(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
+    def forward(self, input_ids, attention_mask):
+        output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         cls_output = output.last_hidden_state[:, 0, :]
         logits = self.fc(cls_output)
         return logits
